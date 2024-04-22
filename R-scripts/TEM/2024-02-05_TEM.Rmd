@@ -1,0 +1,287 @@
+---
+title: "TEM analysis, Katie Murphy"
+output: html_notebook
+---
+
+First, load in the required packages. 
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(vegan)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+
+library(MASS)
+library(stringr)
+library(forcats)
+library(broom)
+library(writexl)
+library(readxl)
+library(lsmeans)
+library(ggridges)
+library(ggpubr)
+library(ggfortify)
+library(data.table)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+```
+
+```{r}
+heat_chloroplast  <- read_xlsx("TEM_image_data_Katie_Oct_2022.xlsx", sheet = "chloroplast")
+heat_PGs  <- read_xlsx("TEM_image_data_Katie_Oct_2022.xlsx", sheet = "PGs")
+heat_starch  <- read_xlsx("TEM_image_data_Katie_Oct_2022.xlsx", sheet = "starch")
+heat_thylht  <- read_xlsx("TEM_image_data_Katie_Oct_2022.xlsx", sheet = "thyl_ht")
+
+
+heat_chloroplast$gxe <- paste(heat_chloroplast$treatment,heat_chloroplast$genotype)
+heat_PGs$gxe <- paste(heat_PGs$treatment,heat_PGs$genotype)
+heat_starch$gxe <- paste(heat_starch$treatment,heat_starch$genotype)
+heat_thylht$gxe <- paste(heat_thylht$treatment,heat_thylht$genotype)
+
+```
+
+
+
+```{r}
+head(heat_starch)
+
+heat_starch_counts <- heat_starch %>%
+  count(genotype,treatment,gxe,id)
+
+heat_chloroplast_counts <- heat_chloroplast %>%
+  count(genotype,treatment,gxe,id)
+
+heat_PGs_counts <- heat_PGs %>%
+  count(genotype,treatment,gxe,id)
+
+heat_thylht_counts <- heat_thylht %>%
+  count(genotype,treatment,gxe,id)
+```
+
+```{r}
+head(heat_PGs)
+
+heat_chloroplast$genotype <- factor(heat_chloroplast$genotype, levels = c("WT","HLP"))
+heat_PGs_counts$genotype <- factor(heat_PGs_counts$genotype, levels = c("WT","hlp"))
+heat_PGs$genotype <- factor(heat_PGs$genotype, levels = c("WT","hlp"))
+heat_starch$genotype <- factor(heat_starch$genotype, levels = c("WT","HLP"))
+
+colorscheme <- c("#009E73","#CC79A7", "#E69F00",  
+           "#0072B2", "#D55E00")
+
+```
+
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+full_model = lm(area ~ gxe, heat_chloroplast)
+summary(full_model)
+anova(full_model)
+
+# get (adjusted) weight means per group
+model_means <- emmeans(object = full_model,
+                       specs = "gxe")
+
+# add letters to each mean
+model_means_cld <- cld(object = model_means,
+                       adjust = "Tukey",
+                       Letters = letters,
+                       alpha = 0.05)
+
+# show output
+model_means_cld
+```
+
+
+```{r}
+heat_chloroplast2 <- heat_chloroplast %>%
+  inner_join(.,model_means_cld, by = "gxe")
+head(heat_chloroplast2)
+
+chl_area <-  ggplot(heat_chloroplast2, aes(x = gxe, y = area, color = genotype, linetype = treatment)) +
+  geom_boxplot(alpha = 0) +
+  geom_jitter(alpha=0.2) +
+  stat_summary(fun = mean, geom = "text", aes(label = .group, group = gxe), 
+               position = position_dodge(width = 0), vjust = -3) +
+  #geom_text(aes(group = gxe, y = mean(shoot_weight_g), label = .group), position = position_dodge(width = 1)) +
+  theme_bw() +
+  labs(y = "chloroplast area (units)") +
+  #facet_grid( ~ treatment2)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.position = "bottom") + 
+ #   scale_color_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  #theme(legend.position = "none") + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+chl_area
+
+ggsave(filename = "chl_area.svg", plot=chl_area, width=54, height=60, units = c("mm"))
+```
+
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+full_model = lm(area ~ gxe, heat_PGs)
+summary(full_model)
+anova(full_model)
+
+# get (adjusted) weight means per group
+model_means <- emmeans(object = full_model,
+                       specs = "gxe")
+
+# add letters to each mean
+model_means_cld <- cld(object = model_means,
+                       adjust = "Tukey",
+                       Letters = letters,
+                       alpha = 0.05)
+
+# show output
+model_means_cld
+```
+
+
+```{r}
+heat_pgs2 <- heat_PGs %>%
+  inner_join(.,model_means_cld, by = "gxe")
+head(heat_pgs2)
+
+pg_area <-  ggplot(heat_pgs2, aes(x = gxe, y = area, color = genotype, linetype = treatment)) +
+  geom_boxplot(alpha = 0) +
+  geom_jitter(alpha=0.2) +
+  stat_summary(fun = mean, geom = "text", aes(label = .group, group = gxe), 
+               position = position_dodge(width = 0), vjust = -3) +
+  #geom_text(aes(group = gxe, y = mean(shoot_weight_g), label = .group), position = position_dodge(width = 1)) +
+  theme_bw() +
+  labs(y = "plastoglobulii area (units)") +
+  #facet_grid( ~ treatment2)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.position = "bottom") + 
+ #   scale_color_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  #theme(legend.position = "none") + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+pg_area
+
+
+ggsave(filename = "pg_area.svg", plot=pg_area, width=54, height=60, units = c("mm"))
+```
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+head(heat_PGs_counts)
+full_model = lm(n ~ gxe, heat_PGs_counts)
+summary(full_model)
+anova(full_model)
+
+# get (adjusted) weight means per group
+model_means <- emmeans(object = full_model,
+                       specs = "gxe")
+
+# add letters to each mean
+model_means_cld <- cld(object = model_means,
+                       adjust = "Tukey",
+                       Letters = letters,
+                       alpha = 0.05)
+
+# show output
+model_means_cld
+```
+
+
+```{r}
+heat_pgs_count2 <- heat_PGs_counts %>%
+  inner_join(.,model_means_cld, by = "gxe")
+head(heat_pgs_count2)
+
+pg_count <-  ggplot(heat_pgs_count2, aes(x = gxe, y = n, color = genotype, linetype = treatment)) +
+  geom_boxplot(alpha = 0) +
+  geom_jitter(alpha=0.2) +
+  stat_summary(fun = mean, geom = "text", aes(label = .group, group = gxe), 
+               position = position_dodge(width = 0), vjust = -3) +
+  #geom_text(aes(group = gxe, y = mean(shoot_weight_g), label = .group), position = position_dodge(width = 1)) +
+  theme_bw() +
+  labs(y = "number of plastoglobulii per image") +
+  #facet_grid( ~ treatment2)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.position = "bottom") + 
+ #   scale_color_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  #theme(legend.position = "none") + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+pg_count
+
+ggsave(filename = "pg_count.svg", plot=pg_count, width=54, height=60, units = c("mm"))
+```
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+full_model = lm(area ~ gxe, heat_starch)
+summary(full_model)
+anova(full_model)
+
+# get (adjusted) weight means per group
+model_means <- emmeans(object = full_model,
+                       specs = "gxe")
+
+# add letters to each mean
+model_means_cld <- cld(object = model_means,
+                       adjust = "Tukey",
+                       Letters = letters,
+                       alpha = 0.05)
+
+# show output
+model_means_cld
+```
+
+
+```{r}
+heat_starch2 <- heat_starch %>%
+  inner_join(.,model_means_cld, by = "gxe")
+head(heat_starch2)
+
+starch_size <-  ggplot(heat_starch2, aes(x = gxe, y = area, color = genotype, linetype = treatment)) +
+  geom_boxplot(alpha = 0) +
+  geom_jitter(alpha=0.2) +
+  stat_summary(fun = mean, geom = "text", aes(label = .group, group = gxe), 
+               position = position_dodge(width = 0), vjust = -3) +
+  #geom_text(aes(group = gxe, y = mean(shoot_weight_g), label = .group), position = position_dodge(width = 1)) +
+  theme_bw() +
+  labs(y = "starch area (units)") +
+  #facet_grid( ~ treatment2)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.position = "bottom") + 
+ #   scale_color_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  #theme(legend.position = "none") + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) 
+starch_size
+
+ggsave(filename = "starch_size.svg", plot=starch_size, width=54, height=60, units = c("mm"))
+```

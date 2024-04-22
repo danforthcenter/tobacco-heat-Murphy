@@ -1,0 +1,388 @@
+---
+title: "KM Crop Reporter 08202021"
+output: html_notebook
+editor_options: 
+  chunk_output_type: inline
+---
+
+First, load in the required packages. 
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(vegan)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+
+library(MASS)
+library(stringr)
+library(forcats)
+library(broom)
+library(writexl)
+library(readxl)
+library(lsmeans)
+library(ggridges)
+library(svglite)
+
+
+library(ggpubr)
+library(ggfortify)
+library(data.table)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+```
+
+
+Next, read in the data files for single value traits and multi value traits and then make them look the way you want to get rid of empty columns
+
+NOTE TO JJ: You only have one single file and one multi file, so do this only once for that one
+```{r}
+
+#NOTE TO JJ: You only have one single file and one multi file, so do this only once for that one
+
+#read in the files to dataframes
+single  <- read.csv(file = "11012021_results.json-single-value-traits.csv", header = TRUE)
+hist  <- read.csv(file = "11012021_results.json-multi-value-traits.csv", header = TRUE)
+
+
+#look at the top of the dataframe to see which columns you need to keep and get rid of
+head(single)
+
+#Select the columns you want and get rid of the columns you don't want with a -, rename it as a new dataframe
+#NOTE TO JJ: You will keep the camera, imgtype, and other things, so you will need to edit this
+data_single <- dplyr::select(single, -camera, -imgtype, -zoom, -exposure, -gain, -frame, -lifter, -timestamp, -plantbarcode, -cartag, -sample, -image, -in_bounds)
+
+
+#get rid of any NAs because sometimes it gives extra rows that we don't need and this will get rid of them
+data_single <- data_single[!is.na(data_single$area),]
+
+#make the id a factor instead of a number if this is where the plant number is
+#note to JJ: change the id based on the "head" command for which one has a number that the plant is
+data_single$id <- as.factor(data_single$id)
+
+head(data_single)
+
+
+#rename the columns to what they actually are, we want genotype (wil be column with WT or HLP), time (A, B, Ct, D, E), and plant (1-8)
+data_single <- data_single %>% 
+  rename(
+    genotype = measurementlabel,
+    plant = id, 
+    time = other
+    )
+
+#look at the top of the dataframe to see which columns you need to keep and get rid of
+head(hist)
+
+#Select the columns you want and get rid of the columns you don't want with a -, rename it as a new dataframe
+#NOTE TO JJ: You will keep the camera, imgtype, and other things, so you will need to edit this
+data_hist <- dplyr::select(hist, -camera, -imgtype, -zoom, -exposure, -gain, -frame, -lifter, -timestamp, -plantbarcode, -cartag, -sample, -image)
+
+#get rid of any NAs because sometimes it gives extra rows that we don't need and this will get rid of them
+data_hist <- data_hist[!is.na(data_hist$value),]
+
+#make the id a factor instead of a number if this is where the plant number is
+#note to JJ: change the id based on the "head" command for which one has a number that the plant is
+data_hist$id <- as.factor(data_hist$id)
+
+
+#rename the columns to what they actually are, we want genotype (wil be column with WT or HLP), time (A, B, Ct, D, E), and plant (1-8)
+data_hist <- data_hist %>% 
+  rename(
+    genotype = measurementlabel,
+    plant = id, 
+    time = other
+    )
+head(data_single)
+
+#check dataframe, will tell you a good summary
+summary(data_single)
+
+#rename the timepoints 
+#NOTE TO JJ: You will want to change yours to the following commented (just uncomment when you do yours)
+data_single[data_single == "0"] <- "0"
+data_single[data_single == "1D"] <- "1"
+data_single[data_single == "2D"] <- "2"
+data_single[data_single == "3D"] <- "3"
+
+
+#make time a factor
+data_single$time <- as.factor(data_single$time)
+
+
+#rename the timepoints 
+#NOTE TO JJ: You will want to change yours to the following commented (just uncomment when you do yours)
+data_hist[data_hist == "0"] <- "0"
+data_hist[data_hist == "1D"] <- "1"
+data_hist[data_hist == "2D"] <- "2"
+data_hist[data_hist == "3D"] <- "3"
+
+#make time a factor
+data_hist$time <- as.factor(data_hist$time)
+
+data_single$time <- factor(data_single$time, levels = c("0", "1", "2","3","4","5","6","7"))
+data_hist$time <- factor(data_hist$time, levels = c("0", "1", "2","3","4","5","6","7"))
+
+
+#this is making a new dataframe called order that will have the proper order of times
+#JJ, our times are 0, 2, 5, 24, 145 hours
+order <- c(0,1,2,3,4,5, 6, 7)
+
+#check it all out again to see how it looks
+data_single$treatment <- factor(data_single$treatment, levels = c("H","C"))
+head(data_single)
+```
+
+```{r}
+data_single_2 <- data_single
+data_single_2$time <- as.character(data_single_2$time)
+data_single_2$time <- as.numeric(data_single_2$time)
+
+head(data_single_2)
+
+means_1 <- data_single_2 %>%
+  group_by(. , time, treatment, genotype) %>% 
+  summarise_at(c("area", "yii_median_Fv.Fm", "yii_median_Fq..Fm.","npq_median_NPQ","med_index_ari","med_index_ndvi","med_index_ci_rededge"), funs(mean, se = sd(.)/sqrt(4))) 
+
+head(means_1)
+
+```
+
+
+
+Do the statistics for fv/fm using the single histogram peak that was provided by plantcv
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+#this means to look at fv/fm peak as a function of genotype, treatment, and time
+full_model = lm(yii_median_Fv.Fm ~ genotype*treatment*time, data_single)
+summary(full_model)
+anova(full_model)
+
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment|time)$contrasts
+#paired1
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype|time)$contrasts
+#paired2
+
+fvfm_avg <- as.data.frame(paired2)
+fvfm_avg_2 <- fvfm_avg
+head(fvfm_avg_2)
+paired2
+paired1
+```
+
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+#this means to look at fv/fm peak as a function of genotype, treatment, and time
+full_model = lm(npq_median_NPQ ~ genotype*treatment*time, data_single)
+summary(full_model)
+anova(full_model)
+
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment|time)$contrasts
+#paired1
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype|time)$contrasts
+#paired2
+
+paired2
+paired1
+```
+
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+#this means to look at fv/fm peak as a function of genotype, treatment, and time
+full_model = lm(med_index_ari ~ genotype*treatment*time, data_single)
+summary(full_model)
+anova(full_model)
+
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment|time)$contrasts
+#paired1
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype|time)$contrasts
+#paired2
+
+paired2
+paired1
+```
+
+```{r}
+fvfm_avg$time <- as.character(fvfm_avg$time)
+
+fvfm_avg_2$time <- as.numeric(fvfm_avg_2$time)
+```
+
+
+
+```{r}
+fvfm_lsmeans <- ggplot(fvfm_avg_2, aes(x = time, y = estimate, shape = genotype, color = genotype)) +
+  geom_line() +
+  geom_errorbar(aes(ymin=estimate-SE, ymax=estimate+SE), width=.1) +
+  geom_point() +
+  theme_bw() +
+  labs(y = "Fv/Fm (treatment - control)") +
+  #facet_grid( ~ time)  +
+  theme(text = element_text(size = 10), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.justification=c(1,0), legend.position = "bottom") + 
+  #theme(legend.position = "none") + 
+  #scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  ggtitle("Fv/Fm heat - control")
+fvfm_lsmeans
+```
+```{r}
+colorscheme <- c("#009E73","#CC79A7", "#E69F00",  
+          "#F0E442", "#0072B2", "#D55E00")
+          
+head(data_single)
+data_single$genotype <- factor(data_single$genotype, levels = c("WT","HLP"))
+
+data_single_plot <- data_single %>% 
+  mutate(treatment = str_replace(treatment, "H", "heat conditions"))%>% 
+  mutate(treatment = str_replace(treatment, "C", "control conditions"))
+
+data_single_plot <- data_single_plot %>% 
+    rename("FvFm_median" = "yii_median_Fv.Fm")
+head(data_single_plot)
+
+data_single_plot$grp <- paste(data_single_plot$treatment, data_single_plot$genotype)
+head(data_single_plot)
+```
+
+
+```{r}
+
+fvfm_hist_median <- data_single_plot %>%
+  group_by(genotype, treatment, grp, time)  %>%
+  summarise(mean = mean(FvFm_median), se = sd(FvFm_median)/sqrt(4))  %>%
+  #left_join(time_Qin, by = "time_mins") %>%
+  ggplot(aes(x = time, y = mean, color = genotype, linetype = treatment, group = grp)) +
+  geom_line() +
+  geom_errorbar(aes(ymin=mean - se, ymax = mean + se), width=.1) +
+  #geom_line(aes(y = Qin/coeff)) + 
+  theme_bw() +
+  scale_fill_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  labs(y="Fv/Fm (unitless)", x = "time (days)") +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom") +
+  ylim(0.8,0.85) 
+fvfm_hist_median
+
+ggsave(filename = "CR_fvfm.svg", plot=fvfm_hist_median, width=84, height=84, units = c("mm"))
+```
+
+
+
+```{r}
+
+npq_hist_median <- data_single_plot %>%
+  group_by(genotype, treatment, grp, time)  %>%
+  summarise(mean = mean(npq_median_NPQ), se = sd(npq_median_NPQ)/sqrt(4))  %>%
+  #left_join(time_Qin, by = "time_mins") %>%
+  ggplot(aes(x = time, y = mean, color = genotype, linetype = treatment, group = grp)) +
+  geom_line() +
+  geom_errorbar(aes(ymin=mean - se, ymax = mean + se), width=.1) +
+  #geom_line(aes(y = Qin/coeff)) + 
+  theme_bw() +
+  scale_fill_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  labs(y="NPQ (unitless)", x = "time (days)") +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom") 
+  #ylim(0.8,0.85) 
+npq_hist_median
+
+ggsave(filename = "CR_npq.svg", plot=npq_hist_median, width=84, height=84, units = c("mm"))
+```
+
+
+
+```{r}
+
+ARI <- data_single_plot %>%
+  group_by(genotype, treatment, grp, time)  %>%
+  summarise(mean = mean(med_index_ari), se = sd(med_index_ari)/sqrt(4))  %>%
+  #left_join(time_Qin, by = "time_mins") %>%
+  ggplot(aes(x = time, y = mean, color = genotype, linetype = treatment, group = grp)) +
+  geom_line() +
+  geom_errorbar(aes(ymin=mean - se, ymax = mean + se), width=.1) +
+  #geom_line(aes(y = Qin/coeff)) + 
+  theme_bw() +
+  scale_fill_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  labs(y="Anthocyanin Index (unitless)", x = "time (days)") +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom") 
+  #ylim(0.8,0.85) 
+ARI
+
+ggsave(filename = "CR_ARI.svg", plot=ARI, width=84, height=84, units = c("mm"))
+```
+
+
+```{r}
+
+chli <- data_single_plot %>%
+  group_by(genotype, treatment, grp, time)  %>%
+  summarise(mean = mean(med_index_ci_rededge), se = sd(med_index_ci_rededge)/sqrt(4))  %>%
+  #left_join(time_Qin, by = "time_mins") %>%
+  ggplot(aes(x = time, y = mean, color = genotype, linetype = treatment, group = grp)) +
+  geom_line() +
+  geom_errorbar(aes(ymin=mean - se, ymax = mean + se), width=.1) +
+  #geom_line(aes(y = Qin/coeff)) + 
+  theme_bw() +
+  scale_fill_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  labs(y="Chlorophyll Index (unitless)", x = "time (days)") +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom") 
+  #ylim(0.8,0.85) 
+chli
+
+ggsave(filename = "CR_CHL.svg", plot=chli, width=84, height=84, units = c("mm"))
+```
+
+```{r}
+
+ndvi <- data_single_plot %>%
+  group_by(genotype, treatment, grp, time)  %>%
+  summarise(mean = mean(med_index_ndvi), se = sd(med_index_ndvi)/sqrt(4))  %>%
+  #left_join(time_Qin, by = "time_mins") %>%
+  ggplot(aes(x = time, y = mean, color = genotype, linetype = treatment, group = grp)) +
+  geom_line() +
+  geom_errorbar(aes(ymin=mean - se, ymax = mean + se), width=.1) +
+  #geom_ribbon(aes(ymin=mean - se, ymax = mean + se, fill = genotype), alpha=0.3, linetype = "blank") +
+  theme_bw() +
+  scale_fill_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  labs(y="NDVI (unitless)", x = "time (days)") +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom") 
+  #ylim(0.8,0.85) 
+ndvi
+
+ggsave(filename = "CR_ndvi.svg", plot=ndvi, width=84, height=84, units = c("mm"))
+```

@@ -1,0 +1,221 @@
+---
+title: "Licor"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+First, load in the required packages. 
+
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(vegan)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+
+library(MASS)
+library(stringr)
+library(forcats)
+library(broom)
+library(writexl)
+library(readxl)
+library(lsmeans)
+library(ggridges)
+library(svglite)
+
+
+library(ggpubr)
+library(ggfortify)
+library(data.table)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+```
+
+First, import all of the data. Make sure to edit the excel sheet so it looks like Katie's template
+```{r}
+#import the file. Make sure it's in the same folder as this file. 
+gswtemp_10102022  <- read_xlsx("2022-10-10-km-temp.xlsx", sheet = "for_r")
+
+
+#take a look at what you imported
+head(gswtemp_10102022)
+
+#fix the variables as factors
+gswtemp_10102022$genotype <- as.factor(gswtemp_10102022$genotype)
+gswtemp_10102022$treatment <- as.factor(gswtemp_10102022$treatment)
+gswtemp_10102022$time_mins_factor <- as.factor(gswtemp_10102022$time_mins)
+
+gswtemp_10102022 <- gswtemp_10102022 %>%
+  filter(time_mins_factor != "49")
+
+gswtemp_10102022$genotype <- factor(gswtemp_10102022$genotype, levels = c("WT","HLP"))
+
+colorscheme <- c("#009E73","#CC79A7", "#E69F00",  
+          "#F0E442", "#0072B2", "#D55E00")
+```
+
+
+```{r}
+gswtemp_v2 <- gswtemp_10102022 %>%
+  filter(time_mins_factor == "24" |time_mins_factor == "48"  )
+head(gswtemp_v2)
+
+
+gswtemp_v3 <-gswtemp_v2   %>%
+  dplyr::select(.,genotype, replicate, time_mins_factor, A, gsw, TleafEB) %>%
+  pivot_wider(
+    names_from = time_mins_factor,
+    values_from = c(A, gsw, TleafEB)
+  )%>%
+  mutate(diff_gsw = gsw_48-gsw_24)
+
+head(gswtemp_v3)
+```
+
+```{r}
+temp1 <- ggplot(gswtemp_v2, aes(x = genotype, y = TleafEB, color = genotype)) +
+  geom_jitter(alpha=0.2) +
+  geom_boxplot(alpha = 0) +
+  theme_bw() +
+  labs(y =   expression(Mean~leaf~temperature~(degree*C))) +
+  facet_grid( ~ time_mins_factor)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  scale_color_manual(values=colorscheme) +
+  theme(legend.justification=c(1,0), legend.position = "bottom") +
+  stat_compare_means(label = "p.signif")
+  #scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) 
+temp1
+
+
+#ggsave(filename = "licor_temp.svg", plot=temp1, width=84, height=100, units = c("mm"))
+
+```
+
+
+```{r}
+gsw_plot1 <- ggplot(gswtemp_v2, aes(x = genotype, y = gsw*100, color = genotype)) +
+  geom_jitter(alpha=0.2) +
+  geom_boxplot(alpha = 0) +
+  theme_bw() +
+  labs(y =  expression(g[s]~(mmol~m^{-2}~s^{-1}))) +
+  facet_grid( ~ time_mins_factor)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  scale_color_manual(values=colorscheme) +
+  theme(legend.justification=c(1,0), legend.position = "bottom") +
+  stat_compare_means(label = "p.signif")
+  #scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) 
+gsw_plot1
+
+
+#ggsave(filename = "licor_gsw.svg", plot=gsw_plot1, width=84, height=100, units = c("mm"))
+
+```
+
+Calculate percent increase and standard error of the increase
+```{r}
+head(gswtemp_v2)
+
+gswtemp_v3 <- gswtemp_v2 %>%
+  dplyr::select(.,time_mins_factor, genotype, replicate, gsw) %>%
+  mutate(gsw = gsw*100) %>%
+  pivot_wider(names_from = time_mins_factor, values_from = gsw) %>%
+  rename("control" = 3, "heat" = 4) %>%
+  mutate(percent_increase = (heat-control)/control*100)
+
+summary_gsw <- gswtemp_v3 %>%
+  group_by(genotype) %>%
+  summarize(mean_percent = mean(percent_increase), SE = sd(percent_increase)/sqrt(4))
+
+head(summary_gsw)
+  
+head(gswtemp_v3)
+
+full_model_change = lm(percent_increase ~ genotype, gswtemp_v3)
+summary(full_model_change)
+anova(full_model_change)
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+paired_var = lsmeans(full_model_change, pairwise ~ genotype)$contrasts
+paired_var
+```
+
+
+
+
+
+```{r}
+gsw_plot2 <- ggplot(gswtemp_v3, aes(x = genotype, y = diff_gsw*100, color = genotype)) +
+  geom_jitter(alpha=0.2) +
+  geom_boxplot(alpha = 0) +
+  theme_bw() +
+  labs(y =  expression(Difference~of~g[s]~(mmol~m^{-2}~s^{-1}))) +
+  #facet_grid( ~ time_mins_factor)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  scale_color_manual(values=colorscheme) +
+  theme(legend.justification=c(1,0), legend.position = "bottom") +
+  stat_compare_means(label = "p.signif")
+  #scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) 
+gsw_plot2
+
+
+#ggsave(filename = "licor_gsw_diff.svg", plot=gsw_plot2, width=84, height=100, units = c("mm"))
+
+```
+
+
+Plot the data
+
+
+```{r}
+head(gswtemp_10102022)
+
+A_plot <- gswtemp_10102022 %>%
+  filter(time_mins != "49") %>%
+  group_by(genotype, treatment, time_mins)  %>%
+  summarise(mean = mean(A), se = sd(A)/sqrt(3))  %>%
+  ggplot(aes(x = time_mins, y = mean, color = genotype, linetype = treatment, group = interaction(genotype,treatment))) +
+  geom_line() +
+  geom_ribbon(aes(ymin=mean - se, ymax = mean + se, fill = genotype), alpha=0.1, linetype = "blank") +
+  theme_bw() +
+    scale_color_manual(values=colorscheme) +
+    scale_fill_manual(values=colorscheme) +
+  labs(y = "A", x = "Time (mins)") +
+  theme(text = element_text(size = 10), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE),  sec.axis = sec_axis(~.*coeff, name="Tair")) + 
+  theme(legend.position="bottom")
+A_plot
+
+```
+
+
+
+```{r}
+head(gswtemp_10102022)
+
+A_plot <- gswtemp_10102022 %>%
+  filter(time_mins != "49") %>%
+  group_by(genotype, treatment, time_mins)  %>%
+  summarise(mean = mean(gsw), se = sd(gsw)/sqrt(3))  %>%
+  ggplot(aes(x = time_mins, y = mean, color = genotype, linetype = treatment, group = interaction(genotype,treatment))) +
+  geom_line() +
+  geom_ribbon(aes(ymin=mean - se, ymax = mean + se, fill = genotype), alpha=0.1, linetype = "blank") +
+  theme_bw() +
+    scale_color_manual(values=colorscheme) +
+    scale_fill_manual(values=colorscheme) +
+  labs(y =     expression(g[s]~(mmol~m^{-2}~s^{-1})) , x = "Time (mins)") +
+  theme(text = element_text(size = 10), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom")
+A_plot
+
+```

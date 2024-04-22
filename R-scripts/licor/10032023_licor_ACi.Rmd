@@ -1,0 +1,172 @@
+---
+title: "Licor"
+output: html_notebook
+---
+
+First, load in the required packages. 
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(vegan)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+
+library(MASS)
+library(stringr)
+library(forcats)
+library(broom)
+library(writexl)
+library(readxl)
+library(lsmeans)
+library(ggridges)
+library(svglite)
+
+
+library(ggpubr)
+library(ggfortify)
+library(data.table)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+```
+
+First, import all of the data. Make sure to edit the excel sheet so it looks like Katie's template
+```{r}
+#import the file. Make sure it's in the same folder as this file. 
+aci_07292022  <- read_xlsx("2022-07-29-heat_ACi.xlsx", sheet = "for_r")
+
+
+#take a look at what you imported
+head(aci_07292022)
+
+#fix the variables as factors
+aci_07292022$genotype <- as.factor(aci_07292022$genotype)
+aci_07292022$treatment <- as.factor(aci_07292022$treatment)
+aci_07292022$meas_number_factor <- as.factor(aci_07292022$meas_number)
+aci_07292022$CO2_factor <- as.factor(aci_07292022$CO2_r_sp)
+
+aci_07292022$genotype <- factor(aci_07292022$genotype, levels = c("WT","HLP"))
+
+aci_07292022_plot <- aci_07292022 %>% 
+  mutate(treatment = str_replace(treatment, "28C", "control conditions"))%>% 
+  filter(treatment != "35C")
+
+
+aci_07292022$treatment <- factor(aci_07292022$treatment, levels = c("C","H"))
+```
+
+
+```{r}
+head(aci_07292022_plot)
+#time_Qin <- dplyr::select(gswlight_08032022, Qin, time_mins)
+#coeff <- 50
+ACi_plot2 <- aci_07292022_plot %>%
+  group_by(genotype, CO2_r_sp)  %>%
+  summarise(mean = mean(A), se = sd(A)/sqrt(4))  %>%
+  #left_join(time_Qin, by = "time_mins") %>%
+  ggplot(aes(x = CO2_r_sp, y = mean, color = genotype)) +
+  geom_line() +
+  geom_ribbon(aes(ymin=mean - se, ymax = mean + se, fill = genotype), alpha=0.3, linetype = "blank") +
+  #geom_line(aes(y = Qin/coeff)) + 
+  theme_bw() +
+  scale_fill_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  labs(y='Assimilation ('*mu*'mol' ~ m^-2~s^-1*')', x = expression(CO[2]~(ppm))) +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  theme(legend.position="bottom")
+ACi_plot2
+
+ggsave(filename = "licor_ACi.svg", plot=ACi_plot2, width=84, height=84, units = c("mm"))
+```
+
+
+Run a linear model to determine (1) which factors are significant and (2) if there is a difference between treatments and genotypes
+
+```{r}
+#make a linear model
+model_ACi_A = lm(A ~ genotype*treatment*CO2_factor, aci_07292022)
+summary(model_ACi_A)
+anova(model_ACi_A)
+
+#run the t-tests to figure out which timepoints show significant differences
+trtvscontrol = lsmeans(model_ACi_A,trt.vs.ctrl ~ genotype|treatment|CO2_factor)$contrasts
+trtvscontrol
+
+trtvscontrol = lsmeans(model_ACi_A,trt.vs.ctrl ~ treatment|genotype|CO2_factor)$contrasts
+trtvscontrol
+```
+
+Calculate and plot Ci/Ca
+
+```{r}
+aci_07292022_plot <- aci_07292022_plot %>%
+  mutate(.,Ci_Ca = Ci/Ca)
+
+head(aci_07292022_plot)
+summary(aci_07292022_plot)
+```
+
+
+
+```{r}
+
+Ci_Ca_plot1 <- aci_07292022_plot %>%
+  #filter(CO2_factor != 0)%>%
+  #filter(treatment == "28C") %>%
+  ggplot(aes(x = genotype, y = Ci_Ca, color = genotype, fill = genotype)) +
+  #geom_point(position = position_dodge(width = .1))+
+  geom_jitter(alpha=0.2) +
+  geom_boxplot(alpha = 0) +
+  theme_bw() +
+  labs(y = "Ci/Ca (unitless)", x = expression(CO[2]~setting~(ppm))) +
+  facet_wrap( ~ CO2_factor, scales = "free", ncol = 5) +
+  theme(text = element_text(size = 11), legend.key = element_blank()) + 
+  scale_color_manual(values=colorscheme) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) + 
+  #stat_compare_means(label = "p.signif", method = "t.test", ref.group = "WT") + 
+  theme(legend.position="bottom") + 
+ # theme(strip.text = element_blank()) +
+   theme(strip.background = element_blank()) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  #ylim(0.4, 0.9) +
+  stat_compare_means(label = "p.signif")
+Ci_Ca_plot1
+
+ggsave(filename = "licor_CiCa.svg", plot=Ci_Ca_plot1, width=174, height=170, units = c("mm"))
+
+```
+
+
+```{r}
+#make a linear model
+model_CiCa = lm(Ci_Ca ~ genotype*treatment*CO2_factor, aci_07292022)
+summary(model_CiCa)
+anova(model_CiCa)
+
+#run the t-tests to figure out which timepoints show significant differences
+trtvscontrol = lsmeans(model_CiCa,trt.vs.ctrl ~ genotype|treatment|CO2_factor)$contrasts
+trtvscontrol
+
+trtvscontrol = lsmeans(model_CiCa,trt.vs.ctrl ~ treatment|genotype|CO2_factor)$contrasts
+trtvscontrol
+```
+
+Find the rate of A (i.e. the slope of the linear region in A/Ci)
+
+```{r}
+#find the rate
+rate_A <- aci_07292022 %>%
+    filter(CO2_r_sp > '100' & CO2_r_sp < '550') 
+
+model_rate_A <- data.table(rate_A)
+model_rate_A <- model_rate_A[,as.list(coef(lm(A ~ CO2_r_sp))), by=c("genotype","treatment","replicate")]
+
+model_rate_A
+```

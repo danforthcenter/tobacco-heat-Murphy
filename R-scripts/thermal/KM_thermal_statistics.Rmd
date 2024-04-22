@@ -1,0 +1,152 @@
+---
+title: "KM Thermal Analysis"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+First, load in the required packages. 
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(vegan)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+
+library(MASS)
+library(stringr)
+library(forcats)
+library(broom)
+library(writexl)
+library(readxl)
+library(lsmeans)
+library(ggridges)
+library(svglite)
+
+```
+
+```{r}
+#read in the files to dataframes
+single_control  <- read.csv(file = "03112022-single-value-traits.csv", header = TRUE)
+
+single_heat  <- read.csv(file = "03092022-single-value-traits.csv", header = TRUE)
+
+#look at the top of the dataframe to see which columns you need to keep and get rid of
+head(single_heat)
+
+#Select the columns you want and get rid of the columns you don't want with a -, rename it as a new dataframe
+data_single_heat <- dplyr::select(single_heat, -camera, -imgtype, -zoom, -exposure, -gain, -frame, -lifter, -timestamp, -plantbarcode, -cartag, -id, -measurementlabel, -image)
+
+data_single_control <- dplyr::select(single_control, -camera, -imgtype, -zoom, -exposure, -gain, -frame, -lifter, -timestamp, -plantbarcode, -cartag, -id, -measurementlabel, -image)
+
+data_single <- rbind(data_single_control, data_single_heat)
+
+head(data_single)
+
+data_single<- data_single %>% separate(sample, c("genotype", "id"))
+
+data_single_heat<- data_single_heat %>% separate(sample, c("genotype", "id"))
+
+data_single_control<- data_single_control %>% separate(sample, c("genotype", "id"))
+
+head(data_single)
+
+```
+
+
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+data_single_noair <- data_single %>%
+  filter(genotype != "air")
+data_single_heat<- data_single_heat %>%
+  filter(genotype != "air")
+data_single_control<- data_single_control %>%
+  filter(genotype != "air")
+
+full_model_heat = lm(mean_temp ~ genotype*time, data_single_heat)
+summary(full_model_heat)
+anova(full_model_heat)
+
+full_model_control = lm(mean_temp ~ genotype*time, data_single_control)
+summary(full_model_control)
+anova(full_model_control)
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+paired_heat = lsmeans(full_model_heat, pairwise ~ genotype|time)$contrasts
+paired_control = lsmeans(full_model_control,pairwise ~ genotype|time)$contrasts
+```
+
+
+
+```{r}
+#prepare data for plotting
+head(data_single)
+data_single$time_hr <- data_single$time / 60
+
+data_single_plot <- data_single %>%
+  filter(time_hr < 46)
+
+head(data_single_plot)
+
+data_single_plot <- data_single_plot %>% 
+  mutate(genotype = str_replace(genotype, "air", "chamber air temperature"))
+
+colorscheme <- c("#000000","#CC79A7","#009E73", "#E69F00", "#56B4E9", 
+          "#F0E442", "#0072B2", "#D55E00")
+```
+
+
+
+```{r}
+therm_2 <- ggplot(data_single_plot, aes(x = time_hr, y = mean_temp, group = genotype, color = genotype)) +
+  geom_line() +
+  theme_bw() +
+  facet_grid( ~ treatment.1)  +
+  labs(y =   expression(Mean~leaf~temperature~(degree*C)), x = "Time (hr)") +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.justification=c(1,0), legend.position = "bottom") + 
+  scale_color_manual(values=colorscheme) +
+  scale_fill_manual(values=colorscheme) + 
+  #theme(legend.position = "none") + 
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) 
+therm_2
+```
+
+```{r}
+ggsave(filename = "thermal_plot1.svg", plot=therm_2, width=174, height=84, units = c("mm"))
+```
+
+
+Calculate the mean and variance for each plant in a day, then average to understand the variance during the day. 
+
+```{r}
+head(data_single_plot)
+
+data_single_variance <- data_single_plot %>%
+  group_by(genotype, treatment.1, id) %>%
+  filter(time_hr > 23.5 & time_hr < 34.3) %>%
+  mutate(mean_day_temp = mean(mean_temp), variance_day_temp = var(mean_temp))
+  
+data_single_variance_2 <- data_single_variance %>%
+  group_by(genotype, treatment.1) %>%
+  filter(time_hr == 25) %>%
+  na.omit() %>%
+  mutate(group_mean_temp = mean(mean_day_temp), group_mean_variance_temp = var(variance_day_temp)) 
+
+full_model_var = lm(group_mean_variance_temp ~ genotype*treatment.1, data_single_variance_2)
+summary(full_model_var)
+anova(full_model_var)
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+paired_var = lsmeans(full_model_var, pairwise ~ genotype|treatment.1)$contrasts
+paired_var
+```
+
+

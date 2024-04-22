@@ -1,0 +1,301 @@
+---
+title: "KM"
+output: html_notebook
+editor_options: 
+  chunk_output_type: console
+---
+
+First, load in the required packages. 
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(scales)
+library(vegan)
+library(lubridate)
+library(tidyverse)
+library(dplyr)
+
+library(MASS)
+library(stringr)
+library(forcats)
+library(broom)
+library(writexl)
+library(readxl)
+library(lsmeans)
+library(ggridges)
+library(svglite)
+
+
+library(ggpubr)
+library(ggfortify)
+library(data.table)
+library(emmeans)
+library(multcomp)
+library(multcompView)
+
+```
+
+```{r}
+
+#read in the files to dataframes
+single  <- read.csv(file = "02112023_combined.csv", header = TRUE)
+
+#look at the top of the dataframe to see which columns you need to keep and get rid of
+head(single)
+
+single <- single %>% 
+  distinct()
+
+data_single <- separate(single, col=sample, into=c('date', 'treatment',"genotype","plant_number","image_number","stoma_number"), sep='_')
+
+head(data_single)
+
+data_single$trait_label <-  paste(data_single$trait,data_single$label, sep = "_")
+data_single <- dplyr::select(data_single, -trait, -label,-date)
+data_single$value <- as.numeric(data_single$value)
+
+#check dataframe, will tell you a good summary
+head(data_single)
+
+data_single_wide <- data_single %>%
+    pivot_wider(data = ., 
+            names_from = trait_label,
+            values_from = value)
+
+head(data_single_wide)
+
+data_single_wide$treatment <- factor(data_single_wide$treatment, levels = c("C","H"))
+data_single_wide$genotype <- factor(data_single_wide$genotype, levels = c("WT","HLP"))
+
+stoma_counts <- data_single_wide %>%
+  count(genotype,treatment,plant_number,image_number)
+head(stoma_counts)
+
+data_single_wide <-  unnest(data_single_wide, area_pixels)
+data_single_wide <-  unnest(data_single_wide, longest_path_pixels)
+
+head(data_single_wide)
+
+data_single_wide$area_um <- data_single_wide$area_pixels*1/1.0309278350515463
+```
+
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+full_model = lm(area_um ~ genotype*treatment, data_single_wide)
+summary(full_model)
+anova(full_model)
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment)$contrasts
+paired1
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype)$contrasts
+paired2
+
+```
+
+Remove outliers
+```{r}
+#get rid of outliers
+#calculate cook's distance
+cooksD <- cooks.distance(full_model)
+influential <- cooksD[(cooksD > (3 * mean(cooksD, na.rm = TRUE)))]
+summary(influential)
+influential
+
+names_of_influential <- names(influential)
+head(names_of_influential)
+outliers <- data_single_wide[names_of_influential,]
+summary(outliers)
+
+data_single_wide_without_outliers <- data_single_wide %>% anti_join(outliers)
+head(data_single_wide_without_outliers)
+summary(data_single_wide_without_outliers)
+```
+
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+full_model = lm(area_um ~ genotype*treatment, data_single_wide_without_outliers)
+summary(full_model)
+anova(full_model)
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment)$contrasts
+paired1
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype)$contrasts
+paired2
+
+```
+
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+full_model = lm(n ~ genotype*treatment, stoma_counts)
+summary(full_model)
+anova(full_model)
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment)$contrasts
+paired1
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype)$contrasts
+paired2
+```
+```{r}
+#make a model and run an anova Look at the anova for which factors are significant
+
+full_model = lm(area_pixels ~ genotype*treatment, data_single_wide)
+summary(full_model)
+anova(full_model)
+
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+#using the model, compare each GENOTYPE to each other, for each specific treatment and time
+paired1 = lsmeans(full_model,pairwise ~ genotype|treatment)$contrasts
+paired1
+
+#using the model, compare each TREATMENT to each other, for each specific genotype and time
+
+paired2 = lsmeans(full_model,pairwise ~ treatment|genotype)$contrasts
+paired2
+
+```
+
+
+
+
+```{r}
+#prepare data for plotting
+
+stoma_counts_plot <- stoma_counts 
+
+head(stoma_counts_plot)
+
+stoma_counts_plot <- stoma_counts_plot %>% 
+  mutate(treatment = str_replace(treatment, "H", "heat conditions"))%>% 
+  mutate(treatment = str_replace(treatment, "C", "control conditions"))
+
+data_single_wide_plot <- data_single_wide_without_outliers %>% 
+  mutate(treatment = str_replace(treatment, "H", "heat conditions"))%>% 
+  mutate(treatment = str_replace(treatment, "C", "control conditions"))
+
+my_comparisons <- list( c("control conditions WT", "heat conditions WT"), c("control conditions HLP", "heat conditions HLP"), c("control conditions WT", "control conditions HLP"), c("heat conditions WT", "heat conditions HLP"))
+
+data_single_wide_plot$grp <- paste(data_single_wide_plot$treatment, data_single_wide_plot$genotype, sep = " ")
+
+stoma_counts_plot$grp <- paste(stoma_counts_plot$treatment, stoma_counts_plot$genotype, sep = " ")
+
+colorscheme <- c("#009E73","#CC79A7", "#E69F00",  
+          "#F0E442", "#0072B2", "#D55E00")
+```
+
+
+
+```{r}
+head(stoma_counts_plot)
+
+full_model = lm(n ~ grp, stoma_counts_plot)
+summary(full_model)
+anova(full_model)
+
+# get (adjusted) weight means per group
+model_means <- emmeans(object = full_model,
+                       specs = "grp")
+
+# add letters to each mean
+model_means_cld <- cld(object = model_means,
+                       adjust = "Tukey",
+                       Letters = letters,
+                       alpha = 0.05)
+
+# show output
+model_means_cld
+
+stoma_counts_plot2 <- stoma_counts_plot %>%
+  inner_join(.,model_means_cld, by = "grp")
+
+counts <- ggplot(stoma_counts_plot2, aes(x = grp, y = n, color = genotype, linetype = treatment)) +
+  geom_jitter(alpha=0.2) +
+  geom_boxplot(alpha = 0) +
+  stat_summary(fun = mean, geom = "text", aes(label = .group, group = grp), 
+               position = position_dodge(width = 0), vjust = -11) +
+  theme_bw() +
+  labs(y = "number of stomata per image") +
+  #facet_grid( ~ treatment)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  theme(legend.justification=c(1,0), legend.position = "bottom") + 
+ #   scale_color_manual(values=colorscheme) +
+  scale_color_manual(values=colorscheme) +
+  #theme(legend.position = "none") + 
+    theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_y_continuous(labels = function(x) format(x, scientific = FALSE)) 
+counts
+
+
+ggsave(filename = "stoma_counts.svg", plot=counts, width=84, height=100, units = c("mm"))
+```
+
+
+```{r}
+head(data_single_wide_plot)  
+
+full_model = lm(area_um ~ grp, data_single_wide_plot)
+summary(full_model)
+anova(full_model)
+
+# get (adjusted) weight means per group
+model_means <- emmeans(object = full_model,
+                       specs = "grp")
+
+# add letters to each mean
+model_means_cld <- cld(object = model_means,
+                       adjust = "Tukey",
+                       Letters = letters,
+                       alpha = 0.05)
+
+# show output
+model_means_cld
+
+data_single_wide_plot2 <- data_single_wide_plot %>%
+  inner_join(.,model_means_cld, by = "grp")
+
+area <- ggplot(data_single_wide_plot2, aes(x = grp, y = area_um, color = genotype, linetype = treatment)) +
+  geom_jitter(alpha=0.2) +
+  geom_boxplot(alpha = 0) +
+    stat_summary(fun = mean, geom = "text", aes(label = .group, group = grp), 
+               position = position_dodge(width = 0), vjust = -11) +
+  theme_bw() +
+  labs(y=expression("Stomata area"~"("*mu*"m"^2~")")) +
+  #facet_grid( ~ treatment)  +
+  theme(text = element_text(size = 11), axis.ticks.x = element_blank(), legend.key = element_blank()) + 
+  #scale_fill_manual(values=c( "#619CFF", "#F8766D")) + 
+  scale_color_manual(values=colorscheme) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  theme(legend.justification=c(1,0), legend.position = "bottom") 
+area
+
+#ggsave(filename = "stoma_area.svg", plot=area, width=84, height=100, units = c("mm"))
+```
